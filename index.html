@@ -30,6 +30,10 @@
       font-family: "Segoe UI", Tahoma, sans-serif;
       background: linear-gradient(180deg, #eef3ff 0%, var(--bg) 45%);
       color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .navbar {
@@ -150,7 +154,11 @@
     }
 
     .wrap {
-      padding:16px;
+      padding: 16px;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
 
     .summary {
@@ -190,7 +198,9 @@
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 14px;
-      overflow: hidden;
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
     }
 
     table {
@@ -206,12 +216,19 @@
       font-size: 0.92rem;
     }
 
+    .hide-branch .col-branch {
+      display: none;
+    }
+
     th {
       background: #f7faff;
       font-size: 0.85rem;
       text-transform: uppercase;
       letter-spacing: 0.3px;
       color: #516086;
+      position: sticky;
+      top: 0;
+      z-index: 2;
     }
 
     tr:hover td {
@@ -273,6 +290,9 @@
     <div class="title">FOOD PRODUCT</div>
     <div class="controls">
       <input type="search" id="searchInput" placeholder="Search" />
+      <select id="branchFilter">
+        <option value="all">All Branches</option>
+      </select>
       <select id="variantFilter">
         <option value="all">All Variants</option>
       </select>
@@ -298,21 +318,23 @@
   <main class="wrap">
     <section class="summary" id="summaryCards"></section>
     <section class="table-box">
-      <table>
+      <table id="productTable">
         <thead>
           <tr>
+            <th>Sno</th>
+            <th class="col-branch">Branch</th>
             <th>Product</th>
             <th>Code</th>
-            <th>Category</th>
             <th>Variant</th>
             <th>Min</th>
             <th>Max</th>
             <th>Stock</th>
+            <th>Restock</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody id="tableBody">
-          <tr><td class="muted" colspan="8">Loading data...</td></tr>
+          <tr><td class="muted" colspan="9">Loading data...</td></tr>
         </tbody>
       </table>
     </section>
@@ -322,8 +344,10 @@
     const API_URL = "https://script.google.com/macros/s/AKfycbzf2QDB9DLeCY2T6XHy7X4hM7phncWwd1wzonPcaIsAUa0a2Bhs-w7Fol73Pgd9t9gMfQ/exec";
 
     const tableBody = document.getElementById("tableBody");
+    const productTable = document.getElementById("productTable");
     const summaryCards = document.getElementById("summaryCards");
     const searchInput = document.getElementById("searchInput");
+    const branchFilter = document.getElementById("branchFilter");
     const variantFilter = document.getElementById("variantFilter");
     const statusFilter = document.getElementById("statusFilter");
     const exportDropdown = document.getElementById("exportDropdown");
@@ -343,30 +367,73 @@
       return { key: "excess", label: "Excess Stock" };
     }
 
+    function getStockValue(item) {
+      const raw = item?.Stock;
+      if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+      const parsed = Number(raw);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    function getNumberValue(value) {
+      const raw = value;
+      if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+      const parsed = Number(raw);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    function consolidateByCode(list) {
+      const grouped = new Map();
+      list.forEach((item) => {
+        const code = String(item.Code ?? "").trim();
+        const fallbackKey = `${String(item.Product ?? "").trim()}|${String(item.Variant ?? "").trim()}`;
+        const key = code || fallbackKey;
+
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            ...item,
+            Min: 0,
+            Max: 0,
+            Stock: 0
+          });
+        }
+
+        const merged = grouped.get(key);
+        merged.Min += getNumberValue(item.Min);
+        merged.Max += getNumberValue(item.Max);
+        merged.Stock += getStockValue(item);
+      });
+      return [...grouped.values()];
+    }
+
     function getBaseFilteredData() {
       const query = searchInput.value.trim().toLowerCase();
+      const branch = branchFilter.value;
       const variant = variantFilter.value;
 
       return products.filter((item) => {
+        const itemBranch = String(item.Branch ?? "").trim();
         const itemVariant = String(item.Variant ?? "").trim();
         const searchTarget = [
+          item.Branch,
           item.Product,
           item.Code,
-          item.Category,
           item.Variant
         ].join(" ").toLowerCase();
 
         const matchQuery = !query || searchTarget.includes(query);
+        const matchBranch = branch === "all" || itemBranch === branch;
         const matchVariant = variant === "all" || itemVariant === variant;
-        return matchQuery && matchVariant;
+        return matchQuery && matchBranch && matchVariant;
       });
     }
 
     function getTableFilteredData() {
       const base = getBaseFilteredData();
+      const branch = branchFilter.value;
+      const source = branch === "all" ? consolidateByCode(base) : base;
       const filter = statusFilter.value;
-      if (filter === "all") return base;
-      return base.filter((item) => getStatus(item).key === filter);
+      if (filter === "all") return source;
+      return source.filter((item) => getStatus(item).key === filter);
     }
 
     function renderVariantFilter(data) {
@@ -380,9 +447,21 @@
       variantFilter.value = variants.includes(selected) ? selected : "all";
     }
 
+    function renderBranchFilter(data) {
+      const branches = [...new Set(
+        data.map((item) => String(item.Branch ?? "").trim()).filter(Boolean)
+      )].sort();
+      const selected = branchFilter.value;
+      branchFilter.innerHTML =
+        '<option value="all">All Branches</option>' +
+        branches.map((b) => `<option value="${b}">${b}</option>`).join("");
+      branchFilter.value = branches.includes(selected) ? selected : "all";
+    }
+
     function renderSummary(list) {
-      const counts = { all: list.length, out: 0, low: 0, ok: 0, excess: 0 };
-      list.forEach((item) => {
+      const consolidated = consolidateByCode(list);
+      const counts = { all: consolidated.length, out: 0, low: 0, ok: 0, excess: 0 };
+      consolidated.forEach((item) => {
         counts[getStatus(item).key] += 1;
       });
       const active = statusFilter.value;
@@ -403,27 +482,42 @@
       });
     }
 
+    function getTableColspan() {
+      return branchFilter.value === "all" ? 9 : 10;
+    }
+
+    function getRestockValue(item) {
+      const status = getStatus(item);
+      if (status.key === "excess") return "-";
+      return (Number(item.Max) || 0) - getStockValue(item);
+    }
+
     function renderTable() {
       const baseFiltered = getBaseFilteredData();
       const filtered = getTableFilteredData();
       renderSummary(baseFiltered);
+      productTable.classList.toggle("hide-branch", branchFilter.value === "all");
 
       if (!filtered.length) {
-        tableBody.innerHTML = '<tr><td class="muted" colspan="8">No matching products found.</td></tr>';
+        tableBody.innerHTML = `<tr><td class="muted" colspan="${getTableColspan()}">No matching products found.</td></tr>`;
         return;
       }
 
-      tableBody.innerHTML = filtered.map((item) => {
+      tableBody.innerHTML = filtered.map((item, index) => {
         const status = getStatus(item);
+        const stockValue = getStockValue(item);
+        const restockValue = getRestockValue(item);
         return `
           <tr class="row-${status.key}">
+            <td>${index + 1}</td>
+            <td class="col-branch">${item.Branch ?? ""}</td>
             <td>${item.Product ?? ""}</td>
             <td>${item.Code ?? ""}</td>
-            <td>${item.Category ?? ""}</td>
             <td>${item.Variant ?? ""}</td>
             <td>${item.Min ?? ""}</td>
             <td>${item.Max ?? ""}</td>
-            <td>${item.Stock ?? ""}</td>
+            <td>${stockValue}</td>
+            <td>${restockValue}</td>
             <td><span class="status ${status.key}">${status.label}</span></td>
           </tr>
         `;
@@ -432,16 +526,24 @@
 
     function exportExcel() {
       try {
-        const rows = getTableFilteredData().map((item) => ({
-          Product: item.Product ?? "",
-          Code: item.Code ?? "",
-          Category: item.Category ?? "",
-          Variant: item.Variant ?? "",
-          Min: item.Min ?? "",
-          Max: item.Max ?? "",
-          Stock: item.Stock ?? "",
-          Status: getStatus(item).label
-        }));
+        const includeBranch = branchFilter.value !== "all";
+        const rows = getTableFilteredData().map((item, index) => {
+          const row = {
+            Sno: index + 1,
+            Product: item.Product ?? "",
+            Code: item.Code ?? "",
+            Variant: item.Variant ?? "",
+            Min: item.Min ?? "",
+            Max: item.Max ?? "",
+            Stock: getStockValue(item),
+            Restock: getRestockValue(item),
+            Status: getStatus(item).label
+          };
+          if (includeBranch) row.Branch = item.Branch ?? "";
+          return includeBranch
+            ? { Sno: row.Sno, Branch: row.Branch, Product: row.Product, Code: row.Code, Variant: row.Variant, Min: row.Min, Max: row.Max, Stock: row.Stock, Restock: row.Restock, Status: row.Status }
+            : row;
+        });
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Message: "No data available for selected filters" }]);
         XLSX.utils.book_append_sheet(wb, ws, "Food Product Stock");
@@ -456,22 +558,33 @@
       try {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: "landscape" });
-        const rows = getTableFilteredData().map((item) => ([
-          item.Product ?? "",
-          item.Code ?? "",
-          item.Category ?? "",
-          item.Variant ?? "",
-          item.Min ?? "",
-          item.Max ?? "",
-          item.Stock ?? "",
-          getStatus(item).label
-        ]));
+        const includeBranch = branchFilter.value !== "all";
+        const rows = getTableFilteredData().map((item, index) => {
+          const baseRow = [
+            index + 1,
+            item.Product ?? "",
+            item.Code ?? "",
+            item.Variant ?? "",
+            item.Min ?? "",
+            item.Max ?? "",
+            getStockValue(item),
+            getRestockValue(item),
+            getStatus(item).label
+          ];
+          return includeBranch ? [index + 1, item.Branch ?? "", ...baseRow.slice(1)] : baseRow;
+        });
+        const head = includeBranch
+          ? [["Sno", "Branch", "Product", "Code", "Variant", "Min", "Max", "Stock", "Restock", "Status"]]
+          : [["Sno", "Product", "Code", "Variant", "Min", "Max", "Stock", "Restock", "Status"]];
+        const emptyRow = includeBranch
+          ? [["No data available for selected filters", "", "", "", "", "", "", "", "", ""]]
+          : [["No data available for selected filters", "", "", "", "", "", "", "", ""]];
         doc.setFontSize(13);
         doc.text("Food Product Stock Report", 14, 12);
         doc.autoTable({
           startY: 16,
-          head: [["Product", "Code", "Category", "Variant", "Min", "Max", "Stock", "Status"]],
-          body: rows.length ? rows : [["No data available for selected filters", "", "", "", "", "", "", ""]],
+          head,
+          body: rows.length ? rows : emptyRow,
           styles: { fontSize: 8, cellPadding: 2 },
           headStyles: { fillColor: [30, 111, 217] },
           theme: "grid"
@@ -488,14 +601,16 @@
         const res = await fetch(API_URL);
         const data = await res.json();
         products = Array.isArray(data) ? data : [data];
+        renderBranchFilter(products);
         renderVariantFilter(products);
         renderTable();
       } catch (error) {
-        tableBody.innerHTML = '<tr><td class="muted" colspan="8">Unable to load data from Apps Script.</td></tr>';
+        tableBody.innerHTML = '<tr><td class="muted" colspan="9">Unable to load data from Apps Script.</td></tr>';
       }
     }
 
     searchInput.addEventListener("input", renderTable);
+    branchFilter.addEventListener("change", renderTable);
     variantFilter.addEventListener("change", renderTable);
     statusFilter.addEventListener("change", renderTable);
     excelBtn.addEventListener("click", () => {
@@ -511,5 +626,3 @@
   </script>
 </body>
 </html>
-
-
