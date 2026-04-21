@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Food Product Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1b1f2a;
+      --muted: #5b6475;
+      --line: #e1e6f0;
+      --brand: #0f4aa3;
+      --out: #d32f2f;
+      --low: #ef6c00;
+      --ok: #2e7d32;
+      --excess: #1565c0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(180deg, #eef3ff 0%, var(--bg) 45%);
+      color: var(--text);
+    }
+
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 20px;
+      background: #ffffffcc;
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      color: var(--brand);
+      white-space: nowrap;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .controls input,
+    .controls select {
+      border: 1px solid #c9d4ea;
+      background: #fff;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.92rem;
+      min-width: 170px;
+      outline: none;
+    }
+
+    .btn {
+      border: 1px solid #c9d4ea;
+      background: #fff;
+      color: var(--brand);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #edf3ff;
+    }
+
+    .export-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .export-dropdown {
+      position: relative;
+    }
+
+    .export-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      line-height: 1;
+    }
+
+    .export-dropdown summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .export-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 170px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(22, 56, 94, 0.14);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      z-index: 20;
+    }
+
+    .export-menu button {
+      text-align: left;
+      border: none;
+      background: #fff;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #123a67;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+    }
+
+    .export-menu button:hover {
+      background: #f3f8ff;
+    }
+
+    .controls input:focus,
+    .controls select:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 2px #dbe7ff;
+    }
+
+    .wrap {
+      padding:16px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .pill {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .pill:hover {
+      border-color: #b9caef;
+      transform: translateY(-1px);
+    }
+
+    .pill.active {
+      border-color: var(--brand);
+      background: #edf3ff;
+    }
+
+    .pill b {
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    .table-box {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 0.92rem;
+    }
+
+    th {
+      background: #f7faff;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: #516086;
+    }
+
+    tr:hover td {
+      background: #f9fbff;
+    }
+
+    tr.row-out td { background: #ffebee; }
+    tr.row-low td { background: #fff7ea; }
+    tr.row-ok td { background: #eefaf0; }
+    tr.row-excess td { background: #eaf4ff; }
+
+    .status {
+      display: inline-block;
+      font-weight: 600;
+      padding: 6px 8px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      border: 1px solid;
+    }
+
+    .out { color: var(--out); background: #ffebee; border-color: #ffcdd2; }
+    .low { color: var(--low); background: #fff3e0; border-color: #ffe0b2; }
+    .ok { color: var(--ok); background: #e8f5e9; border-color: #c8e6c9; }
+    .excess { color: var(--excess); background: #e5e5f5; border-color: #c5bee7; }
+    
+    .muted {
+      color: var(--muted);
+      text-align: center;
+      padding: 18px;
+    }
+
+    @media (max-width: 700px) {
+      .navbar { padding: 12px; }
+      .title { font-size: 1rem; }
+      .controls { width: 100%; justify-content: stretch; }
+      .controls input,
+      .controls select,
+      .btn { width: 100%; min-width: 0; }
+      th,
+      td { font-size: 0.84rem; padding: 10px 8px; }
+    }
+
+    @media print {
+      .navbar,
+      .summary {
+        display: none;
+      }
+      body {
+        background: #fff;
+      }
+      .table-box {
+        border: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="title">FOOD PRODUCT</div>
+    <div class="controls">
+      <input type="search" id="searchInput" placeholder="Search" />
+      <select id="variantFilter">
+        <option value="all">All Variants</option>
+      </select>
+      <select id="statusFilter">
+        <option value="all">All Stock</option>
+        <option value="out">Out Of Stock</option>
+        <option value="low">Low Stock</option>
+        <option value="ok">Correct Stock</option>
+        <option value="excess">Excess Stock</option>
+      </select>
+      <div class="export-actions">
+        <details class="export-dropdown" id="exportDropdown">
+          <summary class="btn export-trigger" title="Export">Export</summary>
+          <div class="export-menu">
+            <button type="button" data-export="excel">Export as Excel</button>
+            <button type="button" data-export="pdf">Export as PDF</button>
+          </div>
+        </details>
+      </div>
+    </div>
+  </nav>
+
+  <main class="wrap">
+    <section class="summary" id="summaryCards"></section>
+    <section class="table-box">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Code</th>
+            <th>Category</th>
+            <th>Variant</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th>Stock</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td class="muted" colspan="8">Loading data...</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbzf2QDB9DLeCY2T6XHy7X4hM7phncWwd1wzonPcaIsAUa0a2Bhs-w7Fol73Pgd9t9gMfQ/exec";
+
+    const tableBody = document.getElementById("tableBody");
+    const summaryCards = document.getElementById("summaryCards");
+    const searchInput = document.getElementById("searchInput");
+    const variantFilter = document.getElementById("variantFilter");
+    const statusFilter = document.getElementById("statusFilter");
+    const exportDropdown = document.getElementById("exportDropdown");
+    const excelBtn = exportDropdown.querySelector('[data-export="excel"]');
+    const pdfBtn = exportDropdown.querySelector('[data-export="pdf"]');
+
+    let products = [];
+
+    function getStatus(item) {
+      const stock = Number(item.Stock) || 0;
+      const min = Number(item.Min) || 0;
+      const max = Number(item.Max) || 0;
+
+      if (stock === 0) return { key: "out", label: "Out Of Stock" };
+      if (stock < min) return { key: "low", label: "Low Stock" };
+      if (stock >= min && stock <= max) return { key: "ok", label: "Correct Stock" };
+      return { key: "excess", label: "Excess Stock" };
+    }
+
+    function getBaseFilteredData() {
+      const query = searchInput.value.trim().toLowerCase();
+      const variant = variantFilter.value;
+
+      return products.filter((item) => {
+        const itemVariant = String(item.Variant ?? "").trim();
+        const searchTarget = [
+          item.Product,
+          item.Code,
+          item.Category,
+          item.Variant
+        ].join(" ").toLowerCase();
+
+        const matchQuery = !query || searchTarget.includes(query);
+        const matchVariant = variant === "all" || itemVariant === variant;
+        return matchQuery && matchVariant;
+      });
+    }
+
+    function getTableFilteredData() {
+      const base = getBaseFilteredData();
+      const filter = statusFilter.value;
+      if (filter === "all") return base;
+      return base.filter((item) => getStatus(item).key === filter);
+    }
+
+    function renderVariantFilter(data) {
+      const variants = [...new Set(
+        data.map((item) => String(item.Variant ?? "").trim()).filter(Boolean)
+      )].sort();
+      const selected = variantFilter.value;
+      variantFilter.innerHTML =
+        '<option value="all">All Variants</option>' +
+        variants.map((v) => `<option value="${v}">${v}</option>`).join("");
+      variantFilter.value = variants.includes(selected) ? selected : "all";
+    }
+
+    function renderSummary(list) {
+      const counts = { all: list.length, out: 0, low: 0, ok: 0, excess: 0 };
+      list.forEach((item) => {
+        counts[getStatus(item).key] += 1;
+      });
+      const active = statusFilter.value;
+
+      summaryCards.innerHTML = `
+        <div class="pill ${active === "all" ? "active" : ""}" data-filter="all"><b>${counts.all}</b><br/>Total Products</div>
+        <div class="pill ${active === "out" ? "active" : ""}" data-filter="out"><b>${counts.out}</b><br/>Out Of Stock</div>
+        <div class="pill ${active === "low" ? "active" : ""}" data-filter="low"><b>${counts.low}</b><br/>Low Stock</div>
+        <div class="pill ${active === "ok" ? "active" : ""}" data-filter="ok"><b>${counts.ok}</b><br/>Correct Stock</div>
+        <div class="pill ${active === "excess" ? "active" : ""}" data-filter="excess"><b>${counts.excess}</b><br/>Excess Stock</div>
+      `;
+
+      summaryCards.querySelectorAll(".pill").forEach((pill) => {
+        pill.addEventListener("click", () => {
+          statusFilter.value = pill.dataset.filter;
+          renderTable();
+        });
+      });
+    }
+
+    function renderTable() {
+      const baseFiltered = getBaseFilteredData();
+      const filtered = getTableFilteredData();
+      renderSummary(baseFiltered);
+
+      if (!filtered.length) {
+        tableBody.innerHTML = '<tr><td class="muted" colspan="8">No matching products found.</td></tr>';
+        return;
+      }
+
+      tableBody.innerHTML = filtered.map((item) => {
+        const status = getStatus(item);
+        return `
+          <tr class="row-${status.key}">
+            <td>${item.Product ?? ""}</td>
+            <td>${item.Code ?? ""}</td>
+            <td>${item.Category ?? ""}</td>
+            <td>${item.Variant ?? ""}</td>
+            <td>${item.Min ?? ""}</td>
+            <td>${item.Max ?? ""}</td>
+            <td>${item.Stock ?? ""}</td>
+            <td><span class="status ${status.key}">${status.label}</span></td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function exportExcel() {
+      try {
+        const rows = getTableFilteredData().map((item) => ({
+          Product: item.Product ?? "",
+          Code: item.Code ?? "",
+          Category: item.Category ?? "",
+          Variant: item.Variant ?? "",
+          Min: item.Min ?? "",
+          Max: item.Max ?? "",
+          Stock: item.Stock ?? "",
+          Status: getStatus(item).label
+        }));
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Message: "No data available for selected filters" }]);
+        XLSX.utils.book_append_sheet(wb, ws, "Food Product Stock");
+        XLSX.writeFile(wb, "Food_Product_Stock_Report.xlsx");
+      } catch (err) {
+        console.error("Excel export failed:", err);
+        alert("Failed to export Excel.");
+      }
+    }
+
+    function exportPdf() {
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: "landscape" });
+        const rows = getTableFilteredData().map((item) => ([
+          item.Product ?? "",
+          item.Code ?? "",
+          item.Category ?? "",
+          item.Variant ?? "",
+          item.Min ?? "",
+          item.Max ?? "",
+          item.Stock ?? "",
+          getStatus(item).label
+        ]));
+        doc.setFontSize(13);
+        doc.text("Food Product Stock Report", 14, 12);
+        doc.autoTable({
+          startY: 16,
+          head: [["Product", "Code", "Category", "Variant", "Min", "Max", "Stock", "Status"]],
+          body: rows.length ? rows : [["No data available for selected filters", "", "", "", "", "", "", ""]],
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [30, 111, 217] },
+          theme: "grid"
+        });
+        doc.save("Food_Product_Stock_Report.pdf");
+      } catch (err) {
+        console.error("PDF export failed:", err);
+        alert("Failed to export PDF.");
+      }
+    }
+
+    async function loadData() {
+      try {
+        const res = await fetch(API_URL);
+        const data = await res.json();
+        products = Array.isArray(data) ? data : [data];
+        renderVariantFilter(products);
+        renderTable();
+      } catch (error) {
+        tableBody.innerHTML = '<tr><td class="muted" colspan="8">Unable to load data from Apps Script.</td></tr>';
+      }
+    }
+
+    searchInput.addEventListener("input", renderTable);
+    variantFilter.addEventListener("change", renderTable);
+    statusFilter.addEventListener("change", renderTable);
+    excelBtn.addEventListener("click", () => {
+      exportExcel();
+      exportDropdown.open = false;
+    });
+    pdfBtn.addEventListener("click", () => {
+      exportPdf();
+      exportDropdown.open = false;
+    });
+
+    loadData();
+  </script>
+</body>
+</html>
+
+
