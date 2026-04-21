@@ -432,8 +432,17 @@
       const branch = branchFilter.value;
       const source = branch === "all" ? consolidateByCode(base) : base;
       const filter = statusFilter.value;
-      if (filter === "all") return source;
-      return source.filter((item) => getStatus(item).key === filter);
+      const statusOrder = { out: 1, low: 2, excess: 3, ok: 4 };
+      const sortByStatus = (list) => [...list].sort((a, b) => {
+        const aKey = getStatus(a).key;
+        const bKey = getStatus(b).key;
+        const byStatus = (statusOrder[aKey] || 99) - (statusOrder[bKey] || 99);
+        if (byStatus !== 0) return byStatus;
+        return String(a.Product ?? "").localeCompare(String(b.Product ?? ""));
+      });
+
+      if (filter === "all") return sortByStatus(source);
+      return sortByStatus(source.filter((item) => getStatus(item).key === filter));
     }
 
     function renderVariantFilter(data) {
