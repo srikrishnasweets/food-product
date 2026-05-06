@@ -535,28 +535,76 @@
 
     function exportExcel() {
       try {
-        const includeBranch = branchFilter.value !== "all";
-        const rows = getTableFilteredData().map((item, index) => {
-          const row = {
-            Sno: index + 1,
-            Product: item.Product ?? "",
-            Code: item.Code ?? "",
-            Variant: item.Variant ?? "",
-            Min: item.Min ?? "",
-            Max: item.Max ?? "",
-            Stock: getStockValue(item),
-            Restock: getRestockValue(item),
-            Status: getStatus(item).label
-          };
-          if (includeBranch) row.Branch = item.Branch ?? "";
-          return includeBranch
-            ? { Sno: row.Sno, Branch: row.Branch, Product: row.Product, Code: row.Code, Variant: row.Variant, Min: row.Min, Max: row.Max, Stock: row.Stock, Restock: row.Restock, Status: row.Status }
-            : row;
+        const query = searchInput.value.trim().toLowerCase();
+        const variant = variantFilter.value;
+        const baseForExport = products.filter((item) => {
+          const itemVariant = String(item.Variant ?? "").trim();
+          const searchTarget = [
+            item.Branch,
+            item.Product,
+            item.Code,
+            item.Variant
+          ].join(" ").toLowerCase();
+
+          const matchQuery = !query || searchTarget.includes(query);
+          const matchVariant = variant === "all" || itemVariant === variant;
+          return matchQuery && matchVariant;
         });
+
+        // 1. Branchwise Restock
+        const branchRows = [];
+        baseForExport.forEach(item => {
+          let stock = getStockValue(item);
+          if (stock < 0) stock = 0; // Consider negative stock as 0
+          const min = getNumberValue(item.Min);
+          const max = getNumberValue(item.Max);
+          
+          if (stock >= max) return; // Do not consider excess/sufficient stock
+          
+          const restock = max - stock;
+          if (restock > 0) {
+            branchRows.push({
+              "Branch": item.Branch ?? "",
+              "Product": item.Product ?? "",
+              "Code": item.Code ?? "",
+              "Min": min,
+              "Max": max,
+              "Stock": stock,
+              "Restock": restock
+            });
+          }
+        });
+
+        // 2. Consolidate for Overall Restock (from branchRows)
+        const overallGrouped = new Map();
+        branchRows.forEach(row => {
+          const code = String(row.Code ?? "").trim();
+          const key = code || String(row.Product ?? "").trim();
+
+          if (!overallGrouped.has(key)) {
+            overallGrouped.set(key, {
+              "Product Name": row.Product,
+              "Code": row.Code,
+              "Stock": 0,
+              "Restock": 0
+            });
+          }
+
+          const merged = overallGrouped.get(key);
+          merged.Stock += row.Stock;
+          merged.Restock += row.Restock;
+        });
+        const overallRows = [...overallGrouped.values()];
+
         const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Message: "No data available for selected filters" }]);
-        XLSX.utils.book_append_sheet(wb, ws, "Food Product Stock");
-        XLSX.writeFile(wb, "Food_Product_Stock_Report.xlsx");
+        
+        const wsOverall = XLSX.utils.json_to_sheet(overallRows.length ? overallRows : [{ Message: "No restock needed" }]);
+        XLSX.utils.book_append_sheet(wb, wsOverall, "Overall Restock");
+
+        const wsBranch = XLSX.utils.json_to_sheet(branchRows.length ? branchRows : [{ Message: "No restock needed" }]);
+        XLSX.utils.book_append_sheet(wb, wsBranch, "Branchwise Restock");
+
+        XLSX.writeFile(wb, "Restock_Report.xlsx");
       } catch (err) {
         console.error("Excel export failed:", err);
         alert("Failed to export Excel.");
