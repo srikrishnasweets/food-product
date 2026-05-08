@@ -254,6 +254,76 @@
     .ok { color: var(--ok); background: #e8f5e9; border-color: #c8e6c9; }
     .excess { color: var(--excess); background: #e5e5f5; border-color: #c5bee7; }
     
+    .table-box tr.clickable {
+      cursor: pointer;
+    }
+
+    .drilldown-header {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      margin-bottom: 14px;
+    }
+
+    .drilldown-header.active {
+      display: flex;
+    }
+
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #f0f4f8;
+      border: 1px solid #c9d4ea;
+      border-radius: 8px;
+      color: var(--brand);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    .back-btn:hover {
+      background: #e1e9f5;
+    }
+
+    .drilldown-title {
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .drilldown-title b {
+      color: var(--text);
+    }
+
+    .drilldown-stats {
+      margin-left: auto;
+      display: flex;
+      gap: 20px;
+      padding-right: 8px;
+    }
+
+    .drilldown-stat {
+      font-size: 0.88rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .drilldown-stat b {
+      color: var(--text);
+      font-size: 1.05rem;
+      background: #f1f5f9;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+    
     .muted {
       color: var(--muted);
       text-align: center;
@@ -316,6 +386,14 @@
   </nav>
 
   <main class="wrap">
+    <div id="drilldownHeader" class="drilldown-header">
+      <button class="back-btn" id="backBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        Back
+      </button>
+      <div class="drilldown-title" id="drilldownTitle"></div>
+      <div class="drilldown-stats" id="drilldownStats"></div>
+    </div>
     <section class="summary" id="summaryCards"></section>
     <section class="table-box">
       <table id="productTable">
@@ -354,7 +432,20 @@
     const excelBtn = exportDropdown.querySelector('[data-export="excel"]');
     const pdfBtn = exportDropdown.querySelector('[data-export="pdf"]');
 
+    const drilldownHeader = document.getElementById("drilldownHeader");
+    const drilldownTitle = document.getElementById("drilldownTitle");
+    const drilldownStats = document.getElementById("drilldownStats");
+    const backBtn = document.getElementById("backBtn");
+
     let products = [];
+    let selectedProductKey = null;
+    let selectedProductName = "";
+
+    function getProductKey(item) {
+      const code = String(item.Code ?? "").trim();
+      const fallbackKey = `${String(item.Product ?? "").trim()}|${String(item.Variant ?? "").trim()}`;
+      return code || fallbackKey;
+    }
 
     function getStatus(item) {
       const stock = Number(item.Stock) || 0;
@@ -393,7 +484,8 @@
             ...item,
             Min: 0,
             Max: 0,
-            Stock: 0
+            Stock: 0,
+            RestockSum: 0
           });
         }
 
@@ -401,6 +493,9 @@
         merged.Min += getNumberValue(item.Min);
         merged.Max += getNumberValue(item.Max);
         merged.Stock += getStockValue(item);
+        
+        const r = getRestockValue(item);
+        if (r !== "-") merged.RestockSum += r;
       });
       return [...grouped.values()];
     }
@@ -430,7 +525,18 @@
     function getTableFilteredData() {
       const base = getBaseFilteredData();
       const branch = branchFilter.value;
-      const source = branch === "all" ? consolidateByCode(base) : base;
+      
+      let source;
+      if (branch === "all") {
+        if (selectedProductKey) {
+          source = base.filter(item => getProductKey(item) === selectedProductKey);
+        } else {
+          source = consolidateByCode(base);
+        }
+      } else {
+        source = base;
+      }
+      
       const filter = statusFilter.value;
       const statusOrder = { out: 1, low: 2, excess: 3, ok: 4 };
       const sortByStatus = (list) => [...list].sort((a, b) => {
@@ -492,10 +598,11 @@
     }
 
     function getTableColspan() {
-      return branchFilter.value === "all" ? 9 : 10;
+      return productTable.classList.contains("hide-branch") ? 9 : 10;
     }
 
     function getRestockValue(item) {
+      if (item.RestockSum !== undefined) return item.RestockSum;
       const status = getStatus(item);
       if (status.key === "excess") return "-";
       return (Number(item.Max) || 0) - getStockValue(item);
@@ -505,7 +612,28 @@
       const baseFiltered = getBaseFilteredData();
       const filtered = getTableFilteredData();
       renderSummary(baseFiltered);
-      productTable.classList.toggle("hide-branch", branchFilter.value === "all");
+      
+      const isDrilldown = branchFilter.value === "all" && !!selectedProductKey;
+      productTable.classList.toggle("hide-branch", branchFilter.value === "all" && !selectedProductKey);
+      
+      if (isDrilldown) {
+        let totalStock = 0;
+        let totalRestock = 0;
+        filtered.forEach(item => {
+          totalStock += getStockValue(item);
+          const r = getRestockValue(item);
+          if (r !== "-") totalRestock += Number(r) || 0;
+        });
+
+        drilldownHeader.classList.add("active");
+        drilldownTitle.innerHTML = `Showing branch details for: <b>${selectedProductName}</b>`;
+        drilldownStats.innerHTML = `
+          <div class="drilldown-stat">Total Stock: <b>${totalStock}</b></div>
+          <div class="drilldown-stat">Total Restock: <b>${totalRestock}</b></div>
+        `;
+      } else {
+        drilldownHeader.classList.remove("active");
+      }
 
       if (!filtered.length) {
         tableBody.innerHTML = `<tr><td class="muted" colspan="${getTableColspan()}">No matching products found.</td></tr>`;
@@ -516,8 +644,12 @@
         const status = getStatus(item);
         const stockValue = getStockValue(item);
         const restockValue = getRestockValue(item);
+        const isConsolidated = branchFilter.value === "all" && !selectedProductKey;
+        
         return `
-          <tr class="row-${status.key}">
+          <tr class="row-${status.key} ${isConsolidated ? 'clickable' : ''}" 
+              data-key="${getProductKey(item)}" 
+              data-name="${item.Product ?? ''}">
             <td>${index + 1}</td>
             <td class="col-branch">${item.Branch ?? ""}</td>
             <td>${item.Product ?? ""}</td>
@@ -666,10 +798,37 @@
       }
     }
 
-    searchInput.addEventListener("input", renderTable);
-    branchFilter.addEventListener("change", renderTable);
-    variantFilter.addEventListener("change", renderTable);
+    function clearDrilldown() {
+      selectedProductKey = null;
+      selectedProductName = "";
+      renderTable();
+    }
+
+    tableBody.addEventListener("click", (e) => {
+      const row = e.target.closest("tr.clickable");
+      if (!row) return;
+      
+      selectedProductKey = row.dataset.key;
+      selectedProductName = row.dataset.name;
+      renderTable();
+    });
+
+    backBtn.addEventListener("click", clearDrilldown);
+
+    searchInput.addEventListener("input", () => {
+      clearDrilldown();
+    });
+    
+    branchFilter.addEventListener("change", () => {
+      clearDrilldown();
+    });
+    
+    variantFilter.addEventListener("change", () => {
+      clearDrilldown();
+    });
+    
     statusFilter.addEventListener("change", renderTable);
+    
     excelBtn.addEventListener("click", () => {
       exportExcel();
       exportDropdown.open = false;
