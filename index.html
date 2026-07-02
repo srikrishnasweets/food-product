@@ -728,6 +728,18 @@
         });
         const overallRows = [...overallGrouped.values()];
 
+        // 3. Master Stock (Full Stock Branchwise)
+        const masterStockRows = baseForExport.map(item => ({
+          "Branch": item.Branch ?? "",
+          "Product": item.Product ?? "",
+          "Code": item.Code ?? "",
+          "Variant": item.Variant ?? "",
+          "Min": getNumberValue(item.Min),
+          "Max": getNumberValue(item.Max),
+          "Stock": getStockValue(item),
+          "Status": getStatus(item).label
+        }));
+
         const wb = XLSX.utils.book_new();
         
         const wsOverall = XLSX.utils.json_to_sheet(overallRows.length ? overallRows : [{ Message: "No restock needed" }]);
@@ -735,6 +747,9 @@
 
         const wsBranch = XLSX.utils.json_to_sheet(branchRows.length ? branchRows : [{ Message: "No restock needed" }]);
         XLSX.utils.book_append_sheet(wb, wsBranch, "Branchwise Restock");
+
+        const wsMaster = XLSX.utils.json_to_sheet(masterStockRows.length ? masterStockRows : [{ Message: "No stock data" }]);
+        XLSX.utils.book_append_sheet(wb, wsMaster, "Master Stock");
 
         XLSX.writeFile(wb, "Restock_Report.xlsx");
       } catch (err) {
