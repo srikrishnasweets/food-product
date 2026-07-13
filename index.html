@@ -58,10 +58,36 @@
       white-space: nowrap;
     }
 
+    .view-toggle {
+      display: flex;
+      background: #eef2f7;
+      padding: 3px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      margin-left: 20px;
+    }
+
+    .view-toggle button {
+      border: none;
+      background: none;
+      padding: 6px 14px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--muted);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .view-toggle button.active {
+      background: #fff;
+      color: var(--brand);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+
     .controls {
       display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
+      gap: 5px;
       justify-content: flex-end;
     }
 
@@ -156,6 +182,7 @@
     .wrap {
       padding: 16px;
       flex: 1;
+      min-width: 0;
       min-height: 0;
       display: flex;
       flex-direction: column;
@@ -217,6 +244,10 @@
     }
 
     .hide-branch .col-branch {
+      display: none;
+    }
+
+    .hide-oos .col-oos-count {
       display: none;
     }
 
@@ -357,7 +388,13 @@
 </head>
 <body>
   <nav class="navbar">
-    <div class="title">FOOD PRODUCT</div>
+    <div style="display: flex; align-items: center;">
+      <div class="title">FOOD PRODUCT</div>
+      <div class="view-toggle">
+        <button id="productsViewBtn" class="active">Products</button>
+        <button id="branchesViewBtn">Branches</button>
+      </div>
+    </div>
     <div class="controls">
       <input type="search" id="searchInput" placeholder="Search" />
       <select id="branchFilter">
@@ -397,11 +434,12 @@
     <section class="summary" id="summaryCards"></section>
     <section class="table-box">
       <table id="productTable">
-        <thead>
+        <thead id="tableHead">
           <tr>
             <th>Sno</th>
             <th class="col-branch">Branch</th>
             <th>Product</th>
+            <th class="col-oos-count">OOS Branches</th>
             <th>Code</th>
             <th>Variant</th>
             <th>Min</th>
@@ -412,7 +450,7 @@
           </tr>
         </thead>
         <tbody id="tableBody">
-          <tr><td class="muted" colspan="9">Loading data...</td></tr>
+          <tr><td class="muted" colspan="11">Loading data...</td></tr>
         </tbody>
       </table>
     </section>
@@ -422,6 +460,7 @@
     const API_URL = "https://script.google.com/macros/s/AKfycbzf2QDB9DLeCY2T6XHy7X4hM7phncWwd1wzonPcaIsAUa0a2Bhs-w7Fol73Pgd9t9gMfQ/exec";
 
     const tableBody = document.getElementById("tableBody");
+    const tableHead = document.getElementById("tableHead");
     const productTable = document.getElementById("productTable");
     const summaryCards = document.getElementById("summaryCards");
     const searchInput = document.getElementById("searchInput");
@@ -437,9 +476,13 @@
     const drilldownStats = document.getElementById("drilldownStats");
     const backBtn = document.getElementById("backBtn");
 
+    const productsViewBtn = document.getElementById("productsViewBtn");
+    const branchesViewBtn = document.getElementById("branchesViewBtn");
+
     let products = [];
     let selectedProductKey = null;
     let selectedProductName = "";
+    let currentView = "products"; // "products" or "branches"
 
     function getProductKey(item) {
       const code = String(item.Code ?? "").trim();
@@ -485,7 +528,8 @@
             Min: 0,
             Max: 0,
             Stock: 0,
-            RestockSum: 0
+            RestockSum: 0,
+            OOSCount: 0
           });
         }
 
@@ -496,8 +540,47 @@
         
         const r = getRestockValue(item);
         if (r !== "-") merged.RestockSum += r;
+
+        if (getStatus(item).key === "out") {
+          merged.OOSCount += 1;
+        }
       });
       return [...grouped.values()];
+    }
+
+    function getBranchViewData() {
+      const baseData = getBaseFilteredData();
+      const branchesMap = new Map();
+      
+      baseData.forEach(item => {
+        const branchName = String(item.Branch ?? "").trim();
+        if (!branchName) return;
+        
+        if (!branchesMap.has(branchName)) {
+          branchesMap.set(branchName, {
+            Branch: branchName,
+            TotalProducts: 0,
+            out: 0,
+            low: 0,
+            ok: 0,
+            excess: 0
+          });
+        }
+        
+        const branchObj = branchesMap.get(branchName);
+        branchObj.TotalProducts += 1;
+        
+        const status = getStatus(item);
+        branchObj[status.key] += 1;
+      });
+      
+      let list = [...branchesMap.values()].sort((a, b) => a.Branch.localeCompare(b.Branch));
+      
+      const filter = statusFilter.value;
+      if (filter !== "all") {
+        list = list.filter(b => b[filter] > 0);
+      }
+      return list;
     }
 
     function getBaseFilteredData() {
@@ -574,15 +657,28 @@
     }
 
     function renderSummary(list) {
-      const consolidated = consolidateByCode(list);
-      const counts = { all: consolidated.length, out: 0, low: 0, ok: 0, excess: 0 };
-      consolidated.forEach((item) => {
-        counts[getStatus(item).key] += 1;
-      });
+      const isDrilldown = branchFilter.value === "all" && !!selectedProductKey;
+      let counts;
+      let labelTotal = "Total Products";
+
+      if (isDrilldown) {
+        const branchItems = list.filter(item => getProductKey(item) === selectedProductKey);
+        counts = { all: branchItems.length, out: 0, low: 0, ok: 0, excess: 0 };
+        branchItems.forEach((item) => {
+          counts[getStatus(item).key] += 1;
+        });
+        labelTotal = "Total Branches";
+      } else {
+        const consolidated = consolidateByCode(list);
+        counts = { all: consolidated.length, out: 0, low: 0, ok: 0, excess: 0 };
+        consolidated.forEach((item) => {
+          counts[getStatus(item).key] += 1;
+        });
+      }
       const active = statusFilter.value;
 
       summaryCards.innerHTML = `
-        <div class="pill ${active === "all" ? "active" : ""}" data-filter="all"><b>${counts.all}</b><br/>Total Products</div>
+        <div class="pill ${active === "all" ? "active" : ""}" data-filter="all"><b>${counts.all}</b><br/>${labelTotal}</div>
         <div class="pill ${active === "out" ? "active" : ""}" data-filter="out"><b>${counts.out}</b><br/>Out Of Stock</div>
         <div class="pill ${active === "low" ? "active" : ""}" data-filter="low"><b>${counts.low}</b><br/>Low Stock</div>
         <div class="pill ${active === "ok" ? "active" : ""}" data-filter="ok"><b>${counts.ok}</b><br/>Correct Stock</div>
@@ -598,7 +694,10 @@
     }
 
     function getTableColspan() {
-      return productTable.classList.contains("hide-branch") ? 9 : 10;
+      let cols = 11;
+      if (productTable.classList.contains("hide-branch")) cols--;
+      if (productTable.classList.contains("hide-oos")) cols--;
+      return cols;
     }
 
     function getRestockValue(item) {
@@ -610,27 +709,92 @@
 
     function renderTable() {
       const baseFiltered = getBaseFilteredData();
-      const filtered = getTableFilteredData();
       renderSummary(baseFiltered);
       
-      const isDrilldown = branchFilter.value === "all" && !!selectedProductKey;
-      productTable.classList.toggle("hide-branch", branchFilter.value === "all" && !selectedProductKey);
-      
-      if (isDrilldown) {
-        let totalStock = 0;
-        let totalRestock = 0;
-        filtered.forEach(item => {
-          totalStock += getStockValue(item);
-          const r = getRestockValue(item);
-          if (r !== "-") totalRestock += Number(r) || 0;
-        });
+      if (currentView === "branches") {
+        drilldownHeader.classList.remove("active");
+        productTable.classList.remove("hide-branch");
+        productTable.classList.remove("hide-oos");
 
-        drilldownHeader.classList.add("active");
-        drilldownTitle.innerHTML = `Showing branch details for: <b>${selectedProductName}</b>`;
-        drilldownStats.innerHTML = `
-          <div class="drilldown-stat">Total Stock: <b>${totalStock}</b></div>
-          <div class="drilldown-stat">Total Restock: <b>${totalRestock}</b></div>
+        tableHead.innerHTML = `
+          <tr>
+            <th>Sno</th>
+            <th>Branch</th>
+            <th>Total Products</th>
+            <th style="color: var(--out);">Out Of Stock</th>
+            <th style="color: var(--low);">Low Stock</th>
+            <th style="color: var(--ok);">Correct Stock</th>
+            <th style="color: var(--excess);">Excess Stock</th>
+          </tr>
         `;
+
+        const branchData = getBranchViewData();
+        if (!branchData.length) {
+          tableBody.innerHTML = `<tr><td class="muted" colspan="7">No matching branches found.</td></tr>`;
+          return;
+        }
+
+        tableBody.innerHTML = branchData.map((b, index) => {
+          return `
+            <tr class="clickable branch-row" data-branch="${b.Branch}">
+              <td>${index + 1}</td>
+              <td><b>${b.Branch}</b></td>
+              <td class="col-count-all" style="cursor: pointer;">${b.TotalProducts}</td>
+              <td class="col-count-out" style="font-weight: bold; color: ${b.out > 0 ? 'var(--out)' : 'inherit'}; cursor: pointer;">${b.out}</td>
+              <td class="col-count-low" style="font-weight: bold; color: ${b.low > 0 ? 'var(--low)' : 'inherit'}; cursor: pointer;">${b.low}</td>
+              <td class="col-count-ok" style="font-weight: bold; color: ${b.ok > 0 ? 'var(--ok)' : 'inherit'}; cursor: pointer;">${b.ok}</td>
+              <td class="col-count-excess" style="font-weight: bold; color: ${b.excess > 0 ? 'var(--excess)' : 'inherit'}; cursor: pointer;">${b.excess}</td>
+            </tr>
+          `;
+        }).join("");
+        return;
+      }
+
+      // Products View
+      tableHead.innerHTML = `
+        <tr>
+          <th>Sno</th>
+          <th class="col-branch">Branch</th>
+          <th>Product</th>
+          <th class="col-oos-count">OOS Branches</th>
+          <th>Code</th>
+          <th>Variant</th>
+          <th>Min</th>
+          <th>Max</th>
+          <th>Stock</th>
+          <th>Restock</th>
+          <th>Status</th>
+        </tr>
+      `;
+
+      const filtered = getTableFilteredData();
+      
+      const isProductDrilldown = branchFilter.value === "all" && !!selectedProductKey;
+      const isBranchDrilldown = branchFilter.value !== "all";
+      const isConsolidated = branchFilter.value === "all" && !selectedProductKey;
+      productTable.classList.toggle("hide-branch", isConsolidated);
+      productTable.classList.toggle("hide-oos", !isConsolidated);
+      
+      if (isProductDrilldown || isBranchDrilldown) {
+        drilldownHeader.classList.add("active");
+        if (isProductDrilldown) {
+          let totalStock = 0;
+          let totalRestock = 0;
+          filtered.forEach(item => {
+            totalStock += getStockValue(item);
+            const r = getRestockValue(item);
+            if (r !== "-") totalRestock += Number(r) || 0;
+          });
+
+          drilldownTitle.innerHTML = `Showing branch details for: <b>${selectedProductName}</b>`;
+          drilldownStats.innerHTML = `
+            <div class="drilldown-stat">Total Stock: <b>${totalStock}</b></div>
+            <div class="drilldown-stat">Total Restock: <b>${totalRestock}</b></div>
+          `;
+        } else {
+          drilldownTitle.innerHTML = `Showing products for branch: <b>${branchFilter.value}</b>`;
+          drilldownStats.innerHTML = "";
+        }
       } else {
         drilldownHeader.classList.remove("active");
       }
@@ -644,7 +808,6 @@
         const status = getStatus(item);
         const stockValue = getStockValue(item);
         const restockValue = getRestockValue(item);
-        const isConsolidated = branchFilter.value === "all" && !selectedProductKey;
         
         return `
           <tr class="row-${status.key} ${isConsolidated ? 'clickable' : ''}" 
@@ -653,6 +816,7 @@
             <td>${index + 1}</td>
             <td class="col-branch">${item.Branch ?? ""}</td>
             <td>${item.Product ?? ""}</td>
+            <td class="col-oos-count" style="font-weight: bold; color: ${item.OOSCount > 0 ? 'var(--out)' : 'inherit'}; cursor: pointer;">${item.OOSCount || 0}</td>
             <td>${item.Code ?? ""}</td>
             <td>${item.Variant ?? ""}</td>
             <td>${item.Min ?? ""}</td>
@@ -707,26 +871,32 @@
           }
         });
 
-        // 2. Consolidate for Overall Restock (from branchRows)
+        // 2. Consolidate for Overall Restock (from baseForExport)
         const overallGrouped = new Map();
-        branchRows.forEach(row => {
-          const code = String(row.Code ?? "").trim();
-          const key = code || String(row.Product ?? "").trim();
+        baseForExport.forEach(item => {
+          const code = String(item.Code ?? "").trim();
+          const key = code || String(item.Product ?? "").trim();
 
           if (!overallGrouped.has(key)) {
             overallGrouped.set(key, {
-              "Product Name": row.Product,
-              "Code": row.Code,
+              "Product Name": item.Product,
+              "Code": item.Code,
               "Stock": 0,
               "Restock": 0
             });
           }
 
           const merged = overallGrouped.get(key);
-          merged.Stock += row.Stock;
-          merged.Restock += row.Restock;
+          merged.Stock += getStockValue(item);
+          
+          let stock = getStockValue(item);
+          if (stock < 0) stock = 0;
+          const max = getNumberValue(item.Max);
+          if (stock < max) {
+            merged.Restock += (max - stock);
+          }
         });
-        const overallRows = [...overallGrouped.values()];
+        const overallRows = [...overallGrouped.values()].filter(row => row.Restock > 0);
 
         // 3. Master Stock (Full Stock Branchwise)
         const masterStockRows = baseForExport.map(item => ({
@@ -816,6 +986,7 @@
     function clearDrilldown() {
       selectedProductKey = null;
       selectedProductName = "";
+      statusFilter.value = "all";
       renderTable();
     }
 
@@ -823,12 +994,67 @@
       const row = e.target.closest("tr.clickable");
       if (!row) return;
       
-      selectedProductKey = row.dataset.key;
-      selectedProductName = row.dataset.name;
+      if (currentView === "branches") {
+        const branchName = row.dataset.branch;
+        branchFilter.value = branchName;
+        currentView = "products";
+        productsViewBtn.classList.add("active");
+        branchesViewBtn.classList.remove("active");
+        
+        if (e.target.classList.contains("col-count-out") || e.target.closest(".col-count-out")) {
+          statusFilter.value = "out";
+        } else if (e.target.classList.contains("col-count-low") || e.target.closest(".col-count-low")) {
+          statusFilter.value = "low";
+        } else if (e.target.classList.contains("col-count-ok") || e.target.closest(".col-count-ok")) {
+          statusFilter.value = "ok";
+        } else if (e.target.classList.contains("col-count-excess") || e.target.closest(".col-count-excess")) {
+          statusFilter.value = "excess";
+        } else {
+          statusFilter.value = "all";
+        }
+        
+        renderTable();
+      } else {
+        selectedProductKey = row.dataset.key;
+        selectedProductName = row.dataset.name;
+        
+        if (e.target.classList.contains("col-oos-count") || e.target.closest(".col-oos-count")) {
+          statusFilter.value = "out";
+        } else {
+          statusFilter.value = "all";
+        }
+        
+        renderTable();
+      }
+    });
+
+    productsViewBtn.addEventListener("click", () => {
+      if (currentView === "products") return;
+      currentView = "products";
+      productsViewBtn.classList.add("active");
+      branchesViewBtn.classList.remove("active");
       renderTable();
     });
 
-    backBtn.addEventListener("click", clearDrilldown);
+    branchesViewBtn.addEventListener("click", () => {
+      if (currentView === "branches") return;
+      currentView = "branches";
+      branchesViewBtn.classList.add("active");
+      productsViewBtn.classList.remove("active");
+      clearDrilldown();
+    });
+
+    backBtn.addEventListener("click", () => {
+      if (branchFilter.value !== "all") {
+        branchFilter.value = "all";
+        currentView = "branches";
+        productsViewBtn.classList.remove("active");
+        branchesViewBtn.classList.add("active");
+        renderTable();
+      } else {
+        clearDrilldown();
+      }
+    });
 
     searchInput.addEventListener("input", () => {
       clearDrilldown();
