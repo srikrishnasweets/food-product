@@ -243,13 +243,15 @@
       font-size: 0.92rem;
     }
 
-    .hide-branch .col-branch {
+    .hide-branch .col-branch,
+    .hide-branch .col-zone {
       display: none;
     }
 
     .hide-oos .col-oos-count {
       display: none;
     }
+
 
     th {
       background: #f7faff;
@@ -397,6 +399,9 @@
     </div>
     <div class="controls">
       <input type="search" id="searchInput" placeholder="Search" />
+      <select id="zoneFilter">
+        <option value="all">All Zones</option>
+      </select>
       <select id="branchFilter">
         <option value="all">All Branches</option>
       </select>
@@ -464,9 +469,11 @@
     const productTable = document.getElementById("productTable");
     const summaryCards = document.getElementById("summaryCards");
     const searchInput = document.getElementById("searchInput");
+    const zoneFilter = document.getElementById("zoneFilter");
     const branchFilter = document.getElementById("branchFilter");
     const variantFilter = document.getElementById("variantFilter");
     const statusFilter = document.getElementById("statusFilter");
+
     const exportDropdown = document.getElementById("exportDropdown");
     const excelBtn = exportDropdown.querySelector('[data-export="excel"]');
     const pdfBtn = exportDropdown.querySelector('[data-export="pdf"]');
@@ -483,6 +490,8 @@
     let selectedProductKey = null;
     let selectedProductName = "";
     let currentView = "products"; // "products" or "branches"
+    let isEditMode = false;
+
 
     function getProductKey(item) {
       const code = String(item.Code ?? "").trim();
@@ -559,6 +568,7 @@
         if (!branchesMap.has(branchName)) {
           branchesMap.set(branchName, {
             Branch: branchName,
+            Zone: String(item.Zone ?? "").trim(),
             TotalProducts: 0,
             out: 0,
             low: 0,
@@ -587,23 +597,28 @@
       const query = searchInput.value.trim().toLowerCase();
       const branch = branchFilter.value;
       const variant = variantFilter.value;
+      const zone = zoneFilter.value;
 
       return products.filter((item) => {
         const itemBranch = String(item.Branch ?? "").trim();
         const itemVariant = String(item.Variant ?? "").trim();
+        const itemZone = String(item.Zone ?? "").trim();
         const searchTarget = [
           item.Branch,
           item.Product,
           item.Code,
-          item.Variant
+          item.Variant,
+          item.Zone
         ].join(" ").toLowerCase();
 
         const matchQuery = !query || searchTarget.includes(query);
         const matchBranch = branch === "all" || itemBranch === branch;
         const matchVariant = variant === "all" || itemVariant === variant;
-        return matchQuery && matchBranch && matchVariant;
+        const matchZone = zone === "all" || itemZone === zone;
+        return matchQuery && matchBranch && matchVariant && matchZone;
       });
     }
+
 
     function getTableFilteredData() {
       const base = getBaseFilteredData();
@@ -656,6 +671,18 @@
       branchFilter.value = branches.includes(selected) ? selected : "all";
     }
 
+    function renderZoneFilter(data) {
+      const zones = [...new Set(
+        data.map((item) => String(item.Zone ?? "").trim()).filter(Boolean)
+      )].sort();
+      const selected = zoneFilter.value;
+      zoneFilter.innerHTML =
+        '<option value="all">All Zones</option>' +
+        zones.map((z) => `<option value="${z}">${z}</option>`).join("");
+      zoneFilter.value = zones.includes(selected) ? selected : "all";
+    }
+
+
     function renderSummary(list) {
       const isDrilldown = branchFilter.value === "all" && !!selectedProductKey;
       let counts;
@@ -694,8 +721,8 @@
     }
 
     function getTableColspan() {
-      let cols = 11;
-      if (productTable.classList.contains("hide-branch")) cols--;
+      let cols = 13;
+      if (productTable.classList.contains("hide-branch")) cols -= 2;
       if (productTable.classList.contains("hide-oos")) cols--;
       return cols;
     }
@@ -708,6 +735,10 @@
     }
 
     function renderTable() {
+      // Toggle filters visibility based on active view
+      zoneFilter.style.display = (currentView === "branches") ? "" : "none";
+      variantFilter.style.display = (currentView === "products") ? "" : "none";
+
       const baseFiltered = getBaseFilteredData();
       renderSummary(baseFiltered);
       
@@ -720,6 +751,7 @@
           <tr>
             <th>Sno</th>
             <th>Branch</th>
+            <th>Zone</th>
             <th>Total Products</th>
             <th style="color: var(--out);">Out Of Stock</th>
             <th style="color: var(--low);">Low Stock</th>
@@ -730,7 +762,7 @@
 
         const branchData = getBranchViewData();
         if (!branchData.length) {
-          tableBody.innerHTML = `<tr><td class="muted" colspan="7">No matching branches found.</td></tr>`;
+          tableBody.innerHTML = `<tr><td class="muted" colspan="8">No matching branches found.</td></tr>`;
           return;
         }
 
@@ -739,6 +771,7 @@
             <tr class="clickable branch-row" data-branch="${b.Branch}">
               <td>${index + 1}</td>
               <td><b>${b.Branch}</b></td>
+              <td>${b.Zone || "-"}</td>
               <td class="col-count-all" style="cursor: pointer;">${b.TotalProducts}</td>
               <td class="col-count-out" style="font-weight: bold; color: ${b.out > 0 ? 'var(--out)' : 'inherit'}; cursor: pointer;">${b.out}</td>
               <td class="col-count-low" style="font-weight: bold; color: ${b.low > 0 ? 'var(--low)' : 'inherit'}; cursor: pointer;">${b.low}</td>
@@ -755,6 +788,7 @@
         <tr>
           <th>Sno</th>
           <th class="col-branch">Branch</th>
+          <th class="col-zone">Zone</th>
           <th>Product</th>
           <th class="col-oos-count">OOS Branches</th>
           <th>Code</th>
@@ -763,6 +797,12 @@
           <th>Max</th>
           <th>Stock</th>
           <th>Restock</th>
+          <th>
+            Remarks
+            <button id="toggleEditBtn" class="btn" style="padding: 2px 6px; font-size: 0.75rem; margin-left: 6px;" onclick="toggleEditMode(event)">
+              ${isEditMode ? "Lock" : "Edit"}
+            </button>
+          </th>
           <th>Status</th>
         </tr>
       `;
@@ -815,6 +855,7 @@
               data-name="${item.Product ?? ''}">
             <td>${index + 1}</td>
             <td class="col-branch">${item.Branch ?? ""}</td>
+            <td class="col-zone">${item.Zone ?? ""}</td>
             <td>${item.Product ?? ""}</td>
             <td class="col-oos-count" style="font-weight: bold; color: ${item.OOSCount > 0 ? 'var(--out)' : 'inherit'}; cursor: pointer;">${item.OOSCount || 0}</td>
             <td>${item.Code ?? ""}</td>
@@ -823,10 +864,24 @@
             <td>${item.Max ?? ""}</td>
             <td>${stockValue}</td>
             <td>${restockValue}</td>
+            <td onclick="event.stopPropagation();">
+              ${isEditMode ? `
+                <textarea class="remark-input" 
+                          data-code="${item.Code ?? ''}" 
+                          data-product="${item.Product ?? ''}" 
+                          data-variant="${item.Variant ?? ''}" 
+                          style="width: 100%; min-width: 120px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font-size: 0.88rem; font-family: inherit; resize: vertical; box-sizing: border-box; display: block;" 
+                          rows="2"
+                          onchange="updateRemark(this)">${item.Remarks ?? ''}</textarea>
+              ` : `
+                <span style="white-space: pre-wrap; word-break: break-word;">${item.Remarks ?? ''}</span>
+              `}
+            </td>
             <td><span class="status ${status.key}">${status.label}</span></td>
           </tr>
         `;
       }).join("");
+
     }
 
     function exportExcel() {
@@ -976,11 +1031,12 @@
         const res = await fetch(API_URL);
         const data = await res.json();
         products = Array.isArray(data) ? data : [data];
+        renderZoneFilter(products);
         renderBranchFilter(products);
         renderVariantFilter(products);
         renderTable();
       } catch (error) {
-        tableBody.innerHTML = '<tr><td class="muted" colspan="9">Unable to load data from Apps Script.</td></tr>';
+        tableBody.innerHTML = '<tr><td class="muted" colspan="12">Unable to load data from Apps Script.</td></tr>';
       }
     }
 
@@ -992,6 +1048,10 @@
     }
 
     tableBody.addEventListener("click", (e) => {
+      // If clicking inside a remark input, do not trigger drilldown row click
+      if (e.target.classList.contains("remark-input")) {
+        return;
+      }
       const row = e.target.closest("tr.clickable");
       if (!row) return;
       
@@ -1001,6 +1061,7 @@
         currentView = "products";
         productsViewBtn.classList.add("active");
         branchesViewBtn.classList.remove("active");
+        zoneFilter.value = "all"; // Reset zone filter when leaving branch view
         
         if (e.target.classList.contains("col-count-out") || e.target.closest(".col-count-out")) {
           statusFilter.value = "out";
@@ -1034,6 +1095,7 @@
       currentView = "products";
       productsViewBtn.classList.add("active");
       branchesViewBtn.classList.remove("active");
+      zoneFilter.value = "all"; // Reset zone filter
       renderTable();
     });
 
@@ -1042,6 +1104,7 @@
       currentView = "branches";
       branchesViewBtn.classList.add("active");
       productsViewBtn.classList.remove("active");
+      variantFilter.value = "all"; // Reset variant filter
       clearDrilldown();
     });
 
@@ -1051,16 +1114,22 @@
         currentView = "branches";
         productsViewBtn.classList.remove("active");
         branchesViewBtn.classList.add("active");
+        variantFilter.value = "all"; // Reset variant filter
         renderTable();
       } else {
         clearDrilldown();
       }
     });
 
+
     searchInput.addEventListener("input", () => {
       clearDrilldown();
     });
     
+    zoneFilter.addEventListener("change", () => {
+      clearDrilldown();
+    });
+
     branchFilter.addEventListener("change", () => {
       clearDrilldown();
     });
@@ -1080,7 +1149,68 @@
       exportDropdown.open = false;
     });
 
+    function toggleEditMode(event) {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+      isEditMode = !isEditMode;
+      renderTable();
+    }
+
+    async function updateRemark(input) {
+      const code = input.dataset.code;
+      const product = input.dataset.product;
+      const variant = input.dataset.variant;
+      const remark = input.value;
+
+      input.style.borderColor = "#f59e0b"; // saving status
+
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain"
+          },
+          body: JSON.stringify({
+            action: "updateRemark",
+            code: code,
+            product: product,
+            variant: variant,
+            remark: remark
+          })
+        });
+        const result = await response.json();
+        if (result.status === "success") {
+          input.style.borderColor = "var(--ok)";
+          setTimeout(() => {
+            input.style.borderColor = "var(--line)";
+          }, 1500);
+
+          products.forEach(p => {
+            let match = false;
+            if (code) {
+              match = (String(p.Code ?? "").trim() === code.trim());
+            } else {
+              match = (String(p.Product ?? "").trim() === product.trim() && String(p.Variant ?? "").trim() === variant.trim());
+            }
+            if (match) {
+              p.Remarks = remark;
+            }
+          });
+        } else {
+          alert("Failed to save remark: " + result.message);
+          input.style.borderColor = "var(--out)";
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Error saving remark.");
+        input.style.borderColor = "var(--out)";
+      }
+    }
+
     loadData();
+
   </script>
 </body>
 </html>
