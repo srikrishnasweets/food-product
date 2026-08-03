@@ -938,7 +938,8 @@
               "Product Name": item.Product,
               "Code": item.Code,
               "Stock": 0,
-              "Restock": 0
+              "Restock": 0,
+              "Remarks": ""
             });
           }
 
@@ -950,6 +951,17 @@
           const max = getNumberValue(item.Max);
           if (stock < max) {
             merged.Restock += (max - stock);
+          }
+
+          if (item.Remarks) {
+            const remarkStr = String(item.Remarks).trim();
+            if (remarkStr) {
+              const existingRemarks = merged.Remarks ? merged.Remarks.split("; ") : [];
+              if (!existingRemarks.includes(remarkStr)) {
+                existingRemarks.push(remarkStr);
+                merged.Remarks = existingRemarks.join("; ");
+              }
+            }
           }
         });
         const overallRows = [...overallGrouped.values()].filter(row => row.Restock > 0);
@@ -1028,7 +1040,7 @@
 
     async function loadData() {
       try {
-        const res = await fetch(API_URL);
+        const res = await fetch(API_URL + "?type=FP");
         const data = await res.json();
         products = Array.isArray(data) ? data : [data];
         renderZoneFilter(products);
@@ -1174,6 +1186,7 @@
           },
           body: JSON.stringify({
             action: "updateRemark",
+            type: "FP",
             code: code,
             product: product,
             variant: variant,
