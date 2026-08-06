@@ -500,6 +500,9 @@
     }
 
     function getStatus(item) {
+      if (item.Stock === "Not Found" || (typeof item.Stock === "string" && item.Stock.trim().toLowerCase() === "not found")) {
+        return { key: "out", label: "Not Found" };
+      }
       const stock = Number(item.Stock) || 0;
       const min = Number(item.Min) || 0;
       const max = Number(item.Max) || 0;
@@ -848,6 +851,8 @@
         const status = getStatus(item);
         const stockValue = getStockValue(item);
         const restockValue = getRestockValue(item);
+        const isNotFound = item.Stock === "Not Found" || (typeof item.Stock === "string" && item.Stock.trim().toLowerCase() === "not found");
+        const stockDisplay = isNotFound ? "Not Found" : stockValue;
         
         return `
           <tr class="row-${status.key} ${isConsolidated ? 'clickable' : ''}" 
@@ -862,7 +867,7 @@
             <td>${item.Variant ?? ""}</td>
             <td>${item.Min ?? ""}</td>
             <td>${item.Max ?? ""}</td>
-            <td>${stockValue}</td>
+            <td>${stockDisplay}</td>
             <td>${restockValue}</td>
             <td onclick="event.stopPropagation();">
               ${isEditMode ? `
@@ -974,7 +979,7 @@
           "Variant": item.Variant ?? "",
           "Min": getNumberValue(item.Min),
           "Max": getNumberValue(item.Max),
-          "Stock": getStockValue(item),
+          "Stock": (item.Stock === "Not Found" || (typeof item.Stock === "string" && item.Stock.trim().toLowerCase() === "not found")) ? "Not Found" : getStockValue(item),
           "Status": getStatus(item).label
         }));
 
@@ -1002,6 +1007,7 @@
         const doc = new jsPDF({ orientation: "landscape" });
         const includeBranch = branchFilter.value !== "all";
         const rows = getTableFilteredData().map((item, index) => {
+          const isNotFound = item.Stock === "Not Found" || (typeof item.Stock === "string" && item.Stock.trim().toLowerCase() === "not found");
           const baseRow = [
             index + 1,
             item.Product ?? "",
@@ -1009,7 +1015,7 @@
             item.Variant ?? "",
             item.Min ?? "",
             item.Max ?? "",
-            getStockValue(item),
+            isNotFound ? "Not Found" : getStockValue(item),
             getRestockValue(item),
             getStatus(item).label
           ];
