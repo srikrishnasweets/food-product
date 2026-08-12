@@ -491,7 +491,19 @@
       let selectedProductName = "";
       let currentView = "products"; // "products" or "branches"
       let isEditMode = false;
+      let avgSortDesc = false;
 
+
+      function getPrevMonthName() {
+        const now = new Date();
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        return prev.toLocaleString('en', { month: 'short' }); // e.g. "Jul"
+      }
+
+      function toggleAvgSort() {
+        avgSortDesc = !avgSortDesc;
+        renderTable();
+      }
 
       function getProductKey(item) {
         const code = String(item.Code ?? "").trim();
@@ -541,7 +553,9 @@
               Max: 0,
               Stock: 0,
               RestockSum: 0,
-              OOSCount: 0
+              OOSCount: 0,
+              AvgSum: 0,
+              AvgCount: 0
             });
           }
 
@@ -556,8 +570,15 @@
           if (getStatus(item).key === "out") {
             merged.OOSCount += 1;
           }
+
+          const avgVal = getNumberValue(item.Avg);
+          merged.AvgSum += avgVal;
+          merged.AvgCount += 1;
         });
-        return [...grouped.values()];
+        return [...grouped.values()].map(item => {
+          item.Avg = item.AvgSum; // total sum across all branches
+          return item;
+        });
       }
 
       function getBranchViewData() {
@@ -795,6 +816,9 @@
             <th class="col-zone">Zone</th>
             <th>Product</th>
             <th class="col-oos-count">OOS Branches</th>
+            <th class="col-avg" onclick="toggleAvgSort()" title="Sort by Avg Sales" style="cursor:pointer; user-select:none; white-space:nowrap;">
+              ${getPrevMonthName()} Avg Sales ${avgSortDesc ? '&#8595;' : '<span style="opacity:0.35;">&#8597;</span>'}
+            </th>
             <th>Code</th>
             <th>Variant</th>
             <th>Min</th>
@@ -811,7 +835,10 @@
           </tr>
         `;
 
-        const filtered = getTableFilteredData();
+        let filtered = getTableFilteredData();
+        if (avgSortDesc) {
+          filtered = [...filtered].sort((a, b) => getNumberValue(b.Avg) - getNumberValue(a.Avg));
+        }
         
         const isProductDrilldown = branchFilter.value === "all" && !!selectedProductKey;
         const isBranchDrilldown = branchFilter.value !== "all";
@@ -864,6 +891,7 @@
               <td class="col-zone">${item.Zone ?? ""}</td>
               <td>${item.Product ?? ""}</td>
               <td class="col-oos-count" style="font-weight: bold; color: ${item.OOSCount > 0 ? 'var(--out)' : 'inherit'}; cursor: pointer;">${item.OOSCount || 0}</td>
+              <td class="col-avg" style="color: var(--muted);">${item.Avg != null && item.Avg !== '' ? item.Avg : '-'}</td>
               <td>${item.Code ?? ""}</td>
               <td>${item.Variant ?? ""}</td>
               <td>${item.Min ?? ""}</td>
